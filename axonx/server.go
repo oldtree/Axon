@@ -78,9 +78,10 @@ func (a *AxonSrv) Start() error {
 }
 
 func (a *AxonSrv) Process(Conn net.Conn) {
-	//Conn.SetDeadline(time.Second * 60)
-	//Conn.SetReadDeadline(time.Second * 60)
-	//Conn.SetWriteDeadline(time.Second * 60)
+	//Conn.SetDeadline(time.Now().Add(time.Second * 60))
+	Conn.(*net.TCPConn).SetKeepAlive(true)
+	//Conn.SetReadDeadline(time.Now().Add(time.Second * 60))
+	//Conn.SetWriteDeadline(time.Now().Add(time.Second * 60))
 	cell := NewCellClient(Conn, a.Inspectx, a.SrvExit)
 	a.Inspectx.OnConnect(cell)
 	go func() {

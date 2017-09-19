@@ -14,13 +14,14 @@ type CellConn struct {
 
 	Statu bool // connection status
 
-	CloseSignal chan int
+	CloseSignal chan struct{}
 	SrvExit     chan int
 
 	ResvChan chan Packet
 	SendChan chan Packet
 
-	Inspect InspectCallBack
+	Inspect    InspectCallBack
+	SingleFunc *sync.Once
 }
 
 func NewCellClientUseAddress(address string, ins InspectCallBack, srvexit chan int) (*CellConn, error) {
@@ -31,24 +32,26 @@ func NewCellClientUseAddress(address string, ins InspectCallBack, srvexit chan i
 	}
 	cn.Conn = c
 
-	cn.CloseSignal = make(chan int, 1)
+	cn.CloseSignal = make(chan struct{}, 1)
 
 	cn.ResvChan = make(chan Packet, 16)
 	cn.SendChan = make(chan Packet, 16)
 	cn.Inspect = ins
 	cn.SrvExit = srvexit
+	cn.SingleFunc = new(sync.Once)
 	return cn, nil
 }
 
 func NewCellClient(c net.Conn, ins InspectCallBack, srvexit chan int) *CellConn {
 	cn := new(CellConn)
 	cn.Conn = c
-	cn.CloseSignal = make(chan int, 1)
+	cn.CloseSignal = make(chan struct{}, 1)
 
 	cn.ResvChan = make(chan Packet, 16)
 	cn.SendChan = make(chan Packet, 16)
 	cn.Inspect = ins
 	cn.SrvExit = srvexit
+	cn.SingleFunc = new(sync.Once)
 	return cn
 }
 
@@ -63,11 +66,6 @@ func (c *CellConn) LocalAddr() net.Addr {
 }
 
 func (c *CellConn) Active() {
-	defer func() {
-		if re := recover(); re != nil {
-			log.Println("recover panic : ", re)
-		}
-	}()
 	c.Statu = true
 	var g sync.WaitGroup
 	go func() {
@@ -84,19 +82,24 @@ func (c *CellConn) Active() {
 		select {
 		case <-c.SrvExit:
 			c.Close()
-			break
+			goto END
+		case <-c.CloseSignal:
+			c.Close()
+			goto END
 		case pack, ok := <-c.ResvChan:
 			if ok {
 				err := c.Inspect.Process(c, pack)
 				if err != nil {
-					break
+					log.Println("process msg error : ", err.Error())
+					goto END
 				}
 			} else {
 				log.Println("resv chan is close")
-				break
+				goto END
 			}
 		}
 	}
+END:
 	g.Wait()
 	log.Println("sender and revciver is exit")
 }
@@ -173,25 +176,32 @@ func (c *CellConn) Send() error {
 		if re := recover(); re != nil {
 			log.Println("recover panic : ", re)
 		}
+
 	}()
+	defer func() {
+		log.Printf("cell %s send loop over \n", c.LocalAddr().String())
+		c.CloseSignal <- struct{}{}
+	}()
+	var err error
 	for {
 		select {
 		case <-c.CloseSignal:
 			log.Printf("cell [%s] close \n", c.RemoteAddr())
-			break
+			return nil
 		case packSend, ok := <-c.SendChan:
 			if ok == true {
-				n, err := c.Conn.Write(packSend.GetData())
+				_, err = c.Conn.Write(packSend.GetData())
 				if err != nil {
 					log.Printf("send data failed [%s] \n", err.Error())
+					return err
 				}
-				log.Printf("send data length [%d] \n", n)
+				continue
 			} else {
-				log.Println("send chan is close")
+				return errors.New("send chan is close")
 			}
 		}
 	}
-	return errors.New("send loop break")
+	return errors.New("send chan is close")
 }
 
 //for real connection recive
@@ -201,26 +211,37 @@ func (c *CellConn) Recive() error {
 			log.Println("recover panic : ", re)
 		}
 	}()
-	//go c.Inspect.SplitMsg(c)
+	defer func() {
+		log.Printf("cell %s recive loop over \n", c.LocalAddr().String())
+		c.CloseSignal <- struct{}{}
+	}()
 	for {
 		select {
 		case <-c.CloseSignal:
 			log.Printf("cell [%s] close \n", c.RemoteAddr())
-			break
+			return nil
 		default:
-			c.Inspect.SplitMsg(c)
+			pack, err := c.Inspect.SplitMsg(c)
+			if err != nil {
+				log.Println("recive error : ", err.Error())
+				return err
+			}
+			c.ResvChan <- pack
 		}
 
 	}
-	return errors.New("recive loop break")
+	return errors.New("recive chan close")
 
 }
 
-func (c *CellConn) Close() error {
-	err := c.Conn.Close()
-	c.CloseSignal <- 1
-	close(c.CloseSignal)
-	close(c.ResvChan)
-	close(c.SendChan)
-	return err
+func (c *CellConn) Close() {
+	log.Printf("%s is closing", c.LocalAddr().String())
+	if c.Statu == true {
+		c.Conn.Close()
+		c.Statu = false
+		close(c.CloseSignal)
+		close(c.ResvChan)
+		close(c.SendChan)
+	}
+	return
 }

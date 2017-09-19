@@ -2,16 +2,20 @@ package ins
 
 import (
 	"bufio"
-	"bytes"
-	"errors"
 	"log"
+	"sync/atomic"
 
 	"github.com/oldtree/Axon/axonx"
 )
 
 var (
-	SEPERATE = []byte("\r\n")
+	SEPERATE    = []byte("\r\n")
+	TotalMsgNum int64
 )
+
+func init() {
+	TotalMsgNum = 0
+}
 
 type JsonPacket []byte
 
@@ -50,15 +54,21 @@ func (J *JsonProtocol) Decode(pack axonx.Packet) ([]byte, error) {
 }
 
 func (J *JsonProtocol) Process(cell *axonx.CellConn, pack axonx.Packet) error {
-	log.Println(pack.Format())
-	n, err := cell.Write([]byte(`{"msg":"hello world"}`))
-	if err != nil {
-		return err
-	}
-	log.Println("msg length : ", n)
+	atomic.AddInt64(&TotalMsgNum, 1)
+	log.Printf("msg info : %s number : %d", pack.Format(), TotalMsgNum)
 	return nil
 }
 
+func (J *JsonProtocol) SplitMsg(cell *axonx.CellConn) (axonx.Packet, error) {
+	reader := bufio.NewReaderSize(cell.Conn, 20)
+	data, _, err := reader.ReadLine()
+	if err != nil {
+		return nil, err
+	}
+	return JsonPacket(data), nil
+}
+
+/*
 func (J *JsonProtocol) SplitMsg(cell *axonx.CellConn) error {
 
 	scaner := bufio.NewScanner(cell.Conn)
@@ -79,7 +89,8 @@ func (J *JsonProtocol) SplitMsg(cell *axonx.CellConn) error {
 	for scaner.Scan() {
 		data := scaner.Bytes()
 		cell.ResvChan <- JsonPacket(data)
+		return nil
 	}
-	return nil
+	return errors.New("empty msg")
 
-}
+}*/

@@ -8,7 +8,7 @@ type Guarder interface {
 
 type InspectCallBack interface {
 	Guarder
-	SplitMsg(cell *CellConn) error
+	SplitMsg(cell *CellConn) (Packet, error)
 	Process(cell *CellConn, pack Packet) error
 	Encode([]byte) (Packet, error)
 	Decode(Packet) ([]byte, error)

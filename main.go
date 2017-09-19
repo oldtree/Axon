@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"runtime"
@@ -33,23 +32,29 @@ func Client() {
 	}
 	go cell.Active()
 	time.Sleep(time.Second * 1)
-	cell.Write([]byte(`{"msg":"golang"}`))
-	for index := 0; index < 10; index++ {
-		cell.Write([]byte(`{"msg":"golang"}`))
+	for index := 0; index < 10000000; index++ {
+		time.Sleep(time.Second * 50)
+		_, err := cell.Write([]byte(`{"msg":"golang"}`))
+		if err != nil {
+			break
+		}
+		//fmt.Printf("cell %s msg length : %d error : %v time %s \n", cell.LocalAddr().String(), n, err, time.Now().String())
 	}
-	select {}
 }
 
 func JsonServer() {
 	go Server()
-	time.Sleep(time.Second * 10)
-	go Client()
-	select {}
+	time.Sleep(time.Second * 5)
+	for index := 0; index < 4000; index++ {
+		go Client()
+		if index%50 == 0 {
+			time.Sleep(time.Second * 5)
+		}
+	}
 }
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	log.Println("Axonx")
 	JsonServer()
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc,

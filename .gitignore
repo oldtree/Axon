@@ -2,3 +2,5 @@ Axon
 config.json
 *.log
 .vscode
+try.go
+*.out
