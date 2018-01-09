@@ -8,13 +8,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/oldtree/Axon/axonx"
+	"flag"
 
+	"github.com/oldtree/Axon/axonx"
+	"github.com/oldtree/Axon/monitor"
+
+	"github.com/oldtree/Axon/axonx/config"
 	"github.com/oldtree/Axon/axonx/ins"
 )
 
+//git clone https://fuchsia.googlesource.com/All-Projects
+var instance = &ins.JsonProtocol{}
+
 func Server() {
-	s := axonx.NewAxonSrv(&ins.JsonProtocol{})
+	s := axonx.NewAxonSrv(instance)
 	s.Address = "127.0.0.1:8090"
 	err := s.Start()
 	if err != nil {
@@ -24,8 +31,8 @@ func Server() {
 }
 
 func Client() {
-	var ext = make(chan int, 1)
-	cell, err := axonx.NewCellClientUseAddress("127.0.0.1:8090", &ins.JsonProtocol{}, ext)
+	var ext = make(chan struct{}, 1)
+	cell, err := axonx.NewCellClientUseAddress(config.GetCfg().SrvAddress, instance, ext)
 	if err != nil {
 		fmt.Println(err.Error())
 		return
@@ -45,7 +52,7 @@ func Client() {
 func JsonServer() {
 	go Server()
 	time.Sleep(time.Second * 5)
-	for index := 0; index < 4000; index++ {
+	for index := 0; index < 400; index++ {
 		go Client()
 		if index%50 == 0 {
 			time.Sleep(time.Second * 5)
@@ -53,9 +60,20 @@ func JsonServer() {
 	}
 }
 
+var conf = flag.String("c", "config.json", "config file")
+
 func main() {
+	flag.Parse()
+	err := config.LoadCfg(*conf)
+	if err != nil {
+		os.Exit(-1)
+	}
 	runtime.GOMAXPROCS(runtime.NumCPU())
-	JsonServer()
+	go axonx.DebugServer(config.GetCfg().DebugAddress)
+	m := monitor.NewMonitor(config.GetCfg().Influx.Address, config.GetCfg().Influx.Username,
+		config.GetCfg().Influx.Password, config.GetCfg().Influx.Databasename)
+	go m.Dog()
+	go JsonServer()
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc,
 		syscall.SIGINT,

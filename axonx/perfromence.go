@@ -5,11 +5,7 @@ import (
 	"net/http/pprof"
 )
 
-func init() {
-	go Server()
-}
-
-func Server() {
+func DebugServer(address string) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/cmd", pprof.Cmdline)
 	mux.HandleFunc("/debug/index", pprof.Index)
@@ -21,5 +17,5 @@ func Server() {
 	mux.Handle("/debug/heap", pprof.Handler("heap"))
 	mux.Handle("/debug/block", pprof.Handler("block"))
 	mux.Handle("/debug/mutex", pprof.Handler("mutex"))
-	http.ListenAndServe(":9080", mux)
+	http.ListenAndServe(address, mux)
 }

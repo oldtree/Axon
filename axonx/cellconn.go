@@ -6,16 +6,16 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type CellConn struct {
-	Conn net.Conn
-
-	Statu bool // connection status
+	Conn   net.Conn
+	Status int64
 
 	CloseSignal chan struct{}
-	SrvExit     chan int
+	SrvExit     chan struct{}
 
 	ResvChan chan Packet
 	SendChan chan Packet
@@ -24,7 +24,7 @@ type CellConn struct {
 	SingleFunc *sync.Once
 }
 
-func NewCellClientUseAddress(address string, ins InspectCallBack, srvexit chan int) (*CellConn, error) {
+func NewCellClientUseAddress(address string, ins InspectCallBack, srvexit chan struct{}) (*CellConn, error) {
 	cn := new(CellConn)
 	c, err := net.Dial("tcp", address)
 	if err != nil {
@@ -42,7 +42,7 @@ func NewCellClientUseAddress(address string, ins InspectCallBack, srvexit chan i
 	return cn, nil
 }
 
-func NewCellClient(c net.Conn, ins InspectCallBack, srvexit chan int) *CellConn {
+func NewCellClient(c net.Conn, ins InspectCallBack, srvexit chan struct{}) *CellConn {
 	cn := new(CellConn)
 	cn.Conn = c
 	cn.CloseSignal = make(chan struct{}, 1)
@@ -66,7 +66,7 @@ func (c *CellConn) LocalAddr() net.Addr {
 }
 
 func (c *CellConn) Active() {
-	c.Statu = true
+	atomic.StoreInt64(&c.Status, 1)
 	var g sync.WaitGroup
 	go func() {
 		g.Add(1)
@@ -104,9 +104,8 @@ END:
 	log.Println("sender and revciver is exit")
 }
 
-//for top level use
 func (c *CellConn) Read(p []byte) (n int, err error) {
-	if c.Statu == true {
+	if atomic.LoadInt64(&c.Status) != 1 {
 		select {
 		case pack, ok := <-c.ResvChan:
 			if ok {
@@ -122,7 +121,7 @@ func (c *CellConn) Read(p []byte) (n int, err error) {
 }
 
 func (c *CellConn) ReadWithTimeout(p []byte, dur time.Duration) (n int, err error) {
-	if c.Statu == true {
+	if atomic.LoadInt64(&c.Status) != 1 {
 		select {
 		case pack, ok := <-c.ResvChan:
 			if ok {
@@ -141,7 +140,7 @@ func (c *CellConn) ReadWithTimeout(p []byte, dur time.Duration) (n int, err erro
 
 //for top level use
 func (c *CellConn) Write(data []byte) (n int, err error) {
-	if c.Statu == true {
+	if atomic.LoadInt64(&c.Status) != 1 {
 		packet, err := c.Inspect.Encode(data)
 		if err != nil {
 			return 0, err
@@ -153,8 +152,8 @@ func (c *CellConn) Write(data []byte) (n int, err error) {
 	}
 }
 
-func (c *CellConn) WriteWithTimeout(data []byte) (n int, err error) {
-	if c.Statu == true {
+func (c *CellConn) WriteWithTimeout(data []byte, dur time.Duration) (n int, err error) {
+	if atomic.LoadInt64(&c.Status) != 1 {
 		packet, err := c.Inspect.Encode(data)
 		if err != nil {
 			return 0, err
@@ -162,7 +161,7 @@ func (c *CellConn) WriteWithTimeout(data []byte) (n int, err error) {
 		select {
 		case c.SendChan <- packet:
 			return packet.Length(), nil
-		case <-time.NewTimer(time.Second * 1).C:
+		case <-time.NewTimer(dur).C:
 			return 0, io.ErrShortBuffer
 		}
 	} else {
@@ -172,12 +171,6 @@ func (c *CellConn) WriteWithTimeout(data []byte) (n int, err error) {
 
 //for real connection send
 func (c *CellConn) Send() error {
-	defer func() {
-		if re := recover(); re != nil {
-			log.Println("recover panic : ", re)
-		}
-
-	}()
 	defer func() {
 		log.Printf("cell %s send loop over \n", c.LocalAddr().String())
 		c.CloseSignal <- struct{}{}
@@ -193,9 +186,8 @@ func (c *CellConn) Send() error {
 				_, err = c.Conn.Write(packSend.GetData())
 				if err != nil {
 					log.Printf("send data failed [%s] \n", err.Error())
-					return err
+					continue
 				}
-				continue
 			} else {
 				return errors.New("send chan is close")
 			}
@@ -204,13 +196,7 @@ func (c *CellConn) Send() error {
 	return errors.New("send chan is close")
 }
 
-//for real connection recive
 func (c *CellConn) Recive() error {
-	defer func() {
-		if re := recover(); re != nil {
-			log.Println("recover panic : ", re)
-		}
-	}()
 	defer func() {
 		log.Printf("cell %s recive loop over \n", c.LocalAddr().String())
 		c.CloseSignal <- struct{}{}
@@ -224,21 +210,20 @@ func (c *CellConn) Recive() error {
 			pack, err := c.Inspect.SplitMsg(c)
 			if err != nil {
 				log.Println("recive error : ", err.Error())
-				return err
+				continue
 			}
 			c.ResvChan <- pack
 		}
 
 	}
 	return errors.New("recive chan close")
-
 }
 
 func (c *CellConn) Close() {
-	log.Printf("%s is closing", c.LocalAddr().String())
-	if c.Statu == true {
+	log.Printf("[%s] is closing \n", c.LocalAddr().String())
+	if atomic.LoadInt64(&c.Status) == 1 {
 		c.Conn.Close()
-		c.Statu = false
+		atomic.StoreInt64(&c.Status, 0)
 		close(c.CloseSignal)
 		close(c.ResvChan)
 		close(c.SendChan)
