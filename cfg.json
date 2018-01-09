@@ -1,0 +1,11 @@
+{
+    "srv_address":"127.0.0.1:8090",
+    "debug_address":"127.0.0.1:9080",
+    "version":"0.0.3",
+    "influx":{
+        "address":"http://127.0.0.1:8086",
+        "username":"root",
+        "password":"123456",
+        "databasename":"test"
+    }
+}

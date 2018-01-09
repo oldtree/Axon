@@ -60,7 +60,7 @@ func JsonServer() {
 	}
 }
 
-var conf = flag.String("c", "config.json", "config file")
+var conf = flag.String("c", "cfg.json", "config file")
 
 func main() {
 	flag.Parse()
