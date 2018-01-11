@@ -86,22 +86,10 @@ func (c *CellConn) Active() {
 		case <-c.CloseSignal:
 			c.Close()
 			goto END
-		case pack, ok := <-c.ResvChan:
-			if ok {
-				err := c.Inspect.Process(c, pack)
-				if err != nil {
-					log.Println("process msg error : ", err.Error())
-					goto END
-				}
-			} else {
-				log.Println("resv chan is close")
-				goto END
-			}
 		}
 	}
 END:
 	g.Wait()
-	log.Println("sender and revciver is exit")
 }
 
 func (c *CellConn) Read(p []byte) (n int, err error) {
@@ -138,7 +126,6 @@ func (c *CellConn) ReadWithTimeout(p []byte, dur time.Duration) (n int, err erro
 	}
 }
 
-//for top level use
 func (c *CellConn) Write(data []byte) (n int, err error) {
 	if atomic.LoadInt64(&c.Status) != 1 {
 		packet, err := c.Inspect.Encode(data)
@@ -168,8 +155,6 @@ func (c *CellConn) WriteWithTimeout(data []byte, dur time.Duration) (n int, err 
 		return 0, errors.New("connection lost")
 	}
 }
-
-//for real connection send
 func (c *CellConn) Send() error {
 	defer func() {
 		log.Printf("cell %s send loop over \n", c.LocalAddr().String())
@@ -222,11 +207,11 @@ func (c *CellConn) Recive() error {
 func (c *CellConn) Close() {
 	log.Printf("[%s] is closing \n", c.LocalAddr().String())
 	if atomic.LoadInt64(&c.Status) == 1 {
-		c.Conn.Close()
-		atomic.StoreInt64(&c.Status, 0)
 		close(c.CloseSignal)
 		close(c.ResvChan)
 		close(c.SendChan)
+		atomic.StoreInt64(&c.Status, 0)
+		c.Conn.Close()
 	}
 	return
 }

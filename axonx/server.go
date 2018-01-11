@@ -85,11 +85,9 @@ func (srv *AxonSrv) Start() error {
 
 func (srv *AxonSrv) Process(Conn net.Conn) {
 	Conn.(*net.TCPConn).SetKeepAlive(true)
-
-	Conn.(*net.TCPConn).SetDeadline(time.Now().Add(time.Second * 120))
+	//Conn.(*net.TCPConn).SetDeadline(time.Now().Add(time.Second * 120))
 	//Conn.(*net.TCPConn).SetReadDeadline(time.Now().Add(time.Second * 60))
 	//Conn.(*net.TCPConn).SetWriteDeadline(time.Now().Add(time.Second * 60))
-
 	cell := NewCellClient(Conn, srv.Inspectx, srv.SrvExit)
 	srv.Inspectx.OnConnect(cell)
 	go func() {
@@ -110,14 +108,11 @@ func (srv *AxonSrv) Listen() error {
 			log.Println("server is exit : ", time.Now())
 		default:
 		}
-		fi, err := srv.Listener.(*net.TCPListener).File()
-		if err != nil {
-			log.Println(fi.Name())
-			log.Println(fi.Fd())
-			continue
-		}
-		srv.Limit.Limit()
+
+		srv.Limit.Acquire()
 		newconn, err := srv.Listener.Accept()
+		fi, err := newconn.(*net.TCPConn).File()
+		log.Printf("get new connect fd : [%s]  fdptr : [%d] \n", fi.Name(), fi.Fd())
 		if err != nil {
 			srv.Close()
 			log.Println("accept net connect failed : ", err.Error())
@@ -134,5 +129,6 @@ func (srv *AxonSrv) Close() {
 	}
 	srv.SrvExit <- struct{}{}
 	close(srv.SrvExit)
+	srv.Limit.Stop()
 	atomic.StoreInt64(&srv.Status, 0)
 }

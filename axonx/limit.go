@@ -4,7 +4,8 @@ import "time"
 
 type Limiter interface {
 	Init(limit int) Limiter
-	Limit()
+	Acquire()
+	Release()
 	Stop()
 }
 
@@ -15,16 +16,47 @@ func (n *NoLimiter) Init(limit int) Limiter {
 	return n
 }
 
-func (n *NoLimiter) Limit() {
+func (n *NoLimiter) Acquire() {
 	return
 }
 
-func (n *NoLimiter) Stop() {
+func (n *NoLimiter) Release() {
 
+}
+
+func (n *NoLimiter) Stop() {
 }
 
 func NewNoLimiter() Limiter {
 	return &NoLimiter{}
+}
+
+type PoolLimit struct {
+	poolSize   int
+	bufferChan chan struct{}
+}
+
+func (p *PoolLimit) Init(limit int) Limiter {
+	p.poolSize = limit
+	p.bufferChan = make(chan struct{}, limit)
+	return p
+}
+
+func (p *PoolLimit) Acquire() {
+	p.bufferChan <- struct{}{}
+}
+
+func (p *PoolLimit) Release() {
+	<-p.bufferChan
+}
+
+func (p *PoolLimit) Stop() {
+	p.poolSize = 0
+	close(p.bufferChan)
+}
+
+func NewPoolLimit(limit int) Limiter {
+	return (&PoolLimit{}).Init(limit)
 }
 
 type TimeLimiter struct {
@@ -49,8 +81,12 @@ func (t *TimeLimiter) Init(limit int) Limiter {
 	return t
 }
 
-func (t *TimeLimiter) Limit() {
+func (t *TimeLimiter) Acquire() {
 	<-t.LimitChan
+}
+
+func (t *TimeLimiter) Release() {
+	return
 }
 
 func (t *TimeLimiter) Stop() {

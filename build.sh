@@ -13,6 +13,7 @@ function start() {
 function build() {
     echo $GOPATH
     echo $GOROOT
+    echo $PWD
     go build 
     chmod +X Axon
 }

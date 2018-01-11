@@ -17,7 +17,6 @@ import (
 	"github.com/oldtree/Axon/axonx/ins"
 )
 
-//git clone https://fuchsia.googlesource.com/All-Projects
 var instance = &ins.JsonProtocol{}
 
 func Server() {
